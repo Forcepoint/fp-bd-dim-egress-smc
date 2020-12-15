@@ -1,0 +1,20 @@
+version: '3.5'
+services:
+  fp-smc:
+    image: docker.frcpnt.com/fp-dim/fp-smc:latest
+    environment:
+      INTERNAL_TOKEN:
+      HOST_DOMAIN: localhost
+      CONTROLLER_SVC_NAME: dim-controller
+      CONTROLLER_PORT: 8080
+      MODULE_SVC_NAME: fp-smc
+      LOCAL_PORT: 8080
+    restart: on-failure
+    volumes:
+      - ${PWD}/config:/config
+    networks:
+      - <CONTROLLER_FOLDER_NAME>_module-net
+
+networks:
+  <CONTROLLER_FOLDER_NAME>_module-net:
+    external: true

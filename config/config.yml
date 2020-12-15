@@ -1,0 +1,4 @@
+blocklist_duration: 3600
+smc_api_key:
+smc_endpoint:
+smc_port: 8082
