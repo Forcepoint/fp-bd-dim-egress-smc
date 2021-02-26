@@ -323,6 +323,16 @@ func createSessionAndLogin() *Session {
 		return nil
 	}
 
+	// Query the SMC deployment for supported API versions and return the latest one
+	apiVersion, err := session.getLatestApiVersion()
+
+	if err != nil {
+		return nil
+	}
+
+	// Set that to be the version in the session
+	session.Version = apiVersion.Rel
+
 	// Login
 	response := session.Login()
 	if response == 400 {
@@ -330,4 +340,39 @@ func createSessionAndLogin() *Session {
 	}
 
 	return session
+}
+
+func (s *Session) getLatestApiVersion() (*ApiVersion, error) {
+	_, resp, err := s.buildRequest(
+		fmt.Sprintf("%s:%s/api", s.Host, s.Port),
+		http.MethodGet,
+		map[string]string{"Content-Type": "application/json"},
+		nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiVersions ApiVersionWrapper
+	err = json.NewDecoder(resp.Body).Decode(&apiVersions)
+	if err != nil {
+		return nil, err
+	}
+	if len(apiVersions.Version) == 0 {
+		return nil, errors.New("returned API versions were empty")
+	}
+	// return the last item in the list which should be the most recent API version
+	return &apiVersions.Version[len(apiVersions.Version)-1], nil
+}
+
+// Representation of data returned from SMC API version check
+//{
+//"href": "http://146.59.179.241:8082/6.9/api",
+//"rel": "6.9"
+//}
+type ApiVersion struct {
+	Href string `json:"href"`
+	Rel  string `json:"rel"`
+}
+
+type ApiVersionWrapper struct {
+	Version []ApiVersion `json:"version"`
 }
