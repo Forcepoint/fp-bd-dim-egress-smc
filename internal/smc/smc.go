@@ -19,22 +19,51 @@ import (
 )
 
 type Session struct {
-	Host    string
-	Port    string
-	Key     string
-	Version string
-	jar     *cookiejar.Jar
-	client  *http.Client
+	Host     string
+	Port     string
+	Key      string
+	Version  string
+	client   *http.Client
+	LoggedIn bool
+}
+
+func NewSMCSession(host, port, key string) (*Session, int, error) {
+	if host == "" || port == "" || key == "" {
+		return &Session{}, http.StatusInternalServerError, errors.New("missing parameters for SMC login")
+	}
+	// Create client and jar
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	client := &http.Client{
+		Jar:     jar,
+		Timeout: 120 * time.Second,
+	}
+	sesh := Session{
+		Host:    host,
+		Port:    port,
+		Key:     key,
+		Version: "",
+		client:  client,
+	}
+
+	apiVersion, err := sesh.GetLatestApiVersion()
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+
+	//Set that to be the version in the session
+	sesh.Version = apiVersion.Rel
+
+	status := sesh.Login()
+
+	sesh.LoggedIn = status == http.StatusOK
+
+	return &sesh, status, nil
 }
 
 func (s *Session) Login() int {
-	// Create client and jar
-	s.jar, _ = cookiejar.New(nil)
-	s.client = &http.Client{
-		Jar:     s.jar,
-		Timeout: 120 * time.Second,
-	}
-
 	// Create login object.
 	login := structs.Login{
 		Domain:            "Shared Domain",
@@ -51,6 +80,8 @@ func (s *Session) Login() int {
 	if err != nil {
 		logrus.Error("Error logging in to smc: ", err)
 	}
+
+	s.LoggedIn = status == http.StatusOK
 
 	return status
 }
@@ -142,17 +173,16 @@ func (s *Session) updateBatchStatus(id int, status string) {
 	}
 }
 
-func HandleRequests() {
-	var session *Session
+func HandleRequests(session *Session) {
 	viper.OnConfigChange(func(in fsnotify.Event) {
-		session = createSessionAndLogin()
+		session, _, _ = NewSMCSession(
+			viper.GetString("smc_endpoint"),
+			viper.GetString("smc_port"),
+			viper.GetString("smc_api_key"))
 	})
 
-	// Create new session.
-	session = createSessionAndLogin()
-
 	for {
-		if session != nil {
+		if session.LoggedIn {
 			// Retrieve requests.
 			request := <-channel.Requests
 
@@ -303,53 +333,17 @@ func (s *Session) updateList(resp *http.Response, batch structs.Request) error {
 	return nil
 }
 
-func createSessionAndLogin() *Session {
-	session := &Session{
-		Host:    viper.GetString("smc_endpoint"),
-		Port:    viper.GetString("smc_port"),
-		Key:     viper.GetString("smc_api_key"),
-		Version: "6.7",
-	}
-
-	if session.Host == "" {
-		return nil
-	}
-
-	if session.Port == "" {
-		return nil
-	}
-
-	if session.Key == "" {
-		return nil
-	}
-
-	// Query the SMC deployment for supported API versions and return the latest one
-	apiVersion, err := session.getLatestApiVersion()
-
-	if err != nil {
-		return nil
-	}
-
-	// Set that to be the version in the session
-	session.Version = apiVersion.Rel
-
-	// Login
-	response := session.Login()
-	if response == 400 {
-		logrus.Error("There was an error logging in to the SMC when attempting to add to the blocklist.")
-	}
-
-	return session
-}
-
-func (s *Session) getLatestApiVersion() (*ApiVersion, error) {
-	_, resp, err := s.buildRequest(
+func (s *Session) GetLatestApiVersion() (*ApiVersion, error) {
+	status, resp, err := s.buildRequest(
 		fmt.Sprintf("%s:%s/api", s.Host, s.Port),
 		http.MethodGet,
 		map[string]string{"Content-Type": "application/json"},
-		nil)
+		http.NoBody)
 	if err != nil {
 		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, errors.New("bad status code")
 	}
 	var apiVersions ApiVersionWrapper
 	err = json.NewDecoder(resp.Body).Decode(&apiVersions)

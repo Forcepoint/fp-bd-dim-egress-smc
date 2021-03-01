@@ -86,7 +86,7 @@ func GetConfig() structs.ModuleConfig {
 	return data
 }
 
-func ValidateConfig() (bool, string) {
+func ValidateConfig(smcSession *smc.Session) (bool, string) {
 	fmt.Println("Validating configuration.")
 
 	// Validate that required fields aren't empty.
@@ -125,16 +125,20 @@ func ValidateConfig() (bool, string) {
 		return false, "SMC Port entered must be in the range 1024 - 65535."
 	}
 
-	// Validate SMC config by logging in.
-	smcSession := smc.Session{
-		Host:    smcEndpoint,
-		Port:    smcPort,
-		Key:     smcAPIKey,
-		Version: "6.7",
+	smcSession, status, err := smc.NewSMCSession(
+		smcEndpoint,
+		smcPort,
+		smcAPIKey)
+
+	if err != nil {
+		logrus.Error(err)
 	}
-	status := smcSession.Login()
+
+	if status == http.StatusUnauthorized {
+		return false, "Connection to SMC could not be created due to invalid credentials. Please validate configuration and try again."
+	}
 	if status != http.StatusOK {
-		return false, "Connection to SMC could not be created. Please validate configuration and try again."
+		return false, fmt.Sprintf("Connection to SMC could not be created. Please validate configuration and try again. STATUS: %s", http.StatusText(status))
 	}
 
 	return true, ""

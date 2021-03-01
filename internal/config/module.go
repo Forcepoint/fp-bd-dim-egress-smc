@@ -11,14 +11,14 @@ import (
 	"os"
 )
 
-func RegisterModule() {
+func RegisterModule(loggedIn bool) {
 	// Get environment variables
 	internalToken := os.Getenv("INTERNAL_TOKEN")
 	controllerSvcName := os.Getenv("CONTROLLER_SVC_NAME")
 	controllerPort := os.Getenv("CONTROLLER_PORT")
 
 	// Get JSON module details.
-	data := GetModuleDetails()
+	data := GetModuleDetails(loggedIn)
 	b := new(bytes.Buffer)
 	json.NewEncoder(b).Encode(data)
 
@@ -40,11 +40,7 @@ func RegisterModule() {
 	}
 }
 
-func GetModuleDetails() structs.Module {
-	// Validate configuration
-	configured, errStr := ValidateConfig()
-	fmt.Println(errStr)
-
+func GetModuleDetails(loggedIn bool) structs.Module {
 	// Create Methods.
 	getMethod := structs.Method{Method: "GET"}
 	postMethod := structs.Method{Method: "POST"}
@@ -79,16 +75,16 @@ func GetModuleDetails() structs.Module {
 
 	// Create Module
 	module := structs.Module{
-		ServiceName:       "fp-smc",
-		DisplayName:       "Forcepoint SMC",
-		IconURL: 		   os.Getenv("ICON_URL"),
-		Type:              "egress",
-		Description:       "Exports intelligence from both Safelist and Blocklist of Dynamic Intelligence Manager into IP Address Lists of Forcepoint Security Management Center, to be used in Traffic inspection policies.",
-		InboundRoute:      "/fp-smc",
-		InternalIP:        getIP(),
-		InternalPort:      "8080",
-		Configured:        configured,
-		Configurable: 	   true,
+		ServiceName:  "fp-smc",
+		DisplayName:  "Forcepoint SMC",
+		IconURL:      os.Getenv("ICON_URL"),
+		Type:         "egress",
+		Description:  "Exports intelligence from both Safelist and Blocklist of Dynamic Intelligence Manager into IP Address Lists of Forcepoint Security Management Center, to be used in Traffic inspection policies.",
+		InboundRoute: "/fp-smc",
+		InternalIP:   getIP(),
+		InternalPort: "8080",
+		Configured:   loggedIn,
+		Configurable: true,
 		InternalEndpoints: []structs.InternalEndpoint{
 			runEndpoint,
 			healthEndpoint,
