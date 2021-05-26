@@ -1,16 +1,5 @@
 package structs
 
-type ElementType int
-
-const (
-	Text ElementType = iota + 1
-	Select
-	Radio
-	Number
-	Password
-	Disabled
-)
-
 type ModuleConfig struct {
 	Fields []Element `json:"fields"`
 }
@@ -31,7 +20,7 @@ type PostedModuleConfig struct {
 
 type PostedConfigValues struct {
 	BlocklistDuration string `json:"blocklist_duration"`
-	SMCAPIKey string `json:"smc_api_key"`
-	SMCEndpoint string `json:"smc_endpoint"`
-	SMCPort string `json:"smc_port"`
+	SMCAPIKey         string `json:"smc_api_key"`
+	SMCEndpoint       string `json:"smc_endpoint"`
+	SMCPort           string `json:"smc_port"`
 }

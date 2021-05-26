@@ -14,9 +14,19 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"os"
-	"strings"
 	"time"
 )
+
+type ListParams struct {
+	items            []string
+	safe             bool
+	batchID          int
+	listType         ListType
+	safelistName     LocalListName
+	blocklistName    LocalListName
+	safelistComment  Comment
+	blocklistComment Comment
+}
 
 type Session struct {
 	Host     string
@@ -86,45 +96,38 @@ func (s *Session) Login() int {
 	return status
 }
 
-func (s *Session) AddToBlockList(batch structs.Request) {
-	// Check if IP List Exists
-	if batch.SafeList {
-		if !viper.IsSet("dim_safelist") {
-			err := s.createList("dim_safelist", "Safelist imported from the Dynamic Intelligence Manager.")
-			if err != nil {
-				logrus.Error(err)
-				s.updateBatchStatus(batch.BatchID, "failed")
-				return
-			}
-		}
-	} else {
-		if !viper.IsSet("dim_blocklist") {
-			err := s.createList("dim_blocklist", "Blocklist imported from the Dynamic Intelligence Manager.")
-			if err != nil {
-				logrus.Error(err)
-				s.updateBatchStatus(batch.BatchID, "failed")
-				return
-			}
-		}
-	}
-
-	resp, err := s.retrieveList(batch.SafeList)
-
+func (s *Session) AddToList(params ListParams) {
+	created, err := s.createList(params)
 	if err != nil {
 		logrus.Error(err)
-		s.updateBatchStatus(batch.BatchID, "failed")
+		go s.updateBatchStatus(params.batchID, structs.Failed)
 		return
 	}
 
-	err = s.updateList(resp, batch)
+	// URL Lists require values to be passed for list creation, so in that case we can just return here
+	// as the next steps are unnecessary, but they will be run on subsequent updates.
+	if created && params.listType == URLListType {
+		go s.updateBatchStatus(params.batchID, structs.Success)
+		return
+	}
+
+	resp, err := s.retrieveList(params)
+
 	if err != nil {
 		logrus.Error(err)
-		s.updateBatchStatus(batch.BatchID, "failed")
+		go s.updateBatchStatus(params.batchID, structs.Failed)
+		return
+	}
+
+	err = s.updateList(resp, params)
+	if err != nil {
+		logrus.Error(err)
+		go s.updateBatchStatus(params.batchID, structs.Failed)
 		return
 	}
 
 	// Build update to send to controller
-	s.updateBatchStatus(batch.BatchID, "success")
+	go s.updateBatchStatus(params.batchID, structs.Success)
 }
 
 func (s Session) Logout() {
@@ -182,13 +185,53 @@ func HandleRequests(session *Session) {
 	})
 
 	for {
-		if session.LoggedIn {
-			// Retrieve requests.
-			request := <-channel.Requests
+		// Retrieve requests.
+		request := <-channel.Requests
 
-			// Send request to add to smc ip lists.
-			session.AddToBlockList(request)
+		var ips []string
+		var urls []string
+
+		for _, item := range request.Items {
+			switch item.Type {
+			case structs.IP, structs.RANGE:
+				ips = append(ips, item.Value)
+			case structs.URL, structs.DOMAIN:
+				urls = append(urls, item.Value)
+			}
 		}
+
+		// Send request to add to smc ip lists.
+		if len(ips) > 0 {
+			params := ListParams{
+				items:            ips,
+				safe:             request.SafeList,
+				batchID:          request.BatchID,
+				listType:         IPListType,
+				safelistName:     IPSafelist,
+				blocklistName:    IPBlocklist,
+				safelistComment:  IPSafelistComment,
+				blocklistComment: IPBlocklistComment,
+			}
+			session.AddToList(params)
+		}
+
+		if len(urls) > 0 {
+			params := ListParams{
+				items:            urls,
+				safe:             request.SafeList,
+				batchID:          request.BatchID,
+				listType:         URLListType,
+				safelistName:     URLSafelist,
+				blocklistName:    URLBlocklist,
+				safelistComment:  URLSafelistComment,
+				blocklistComment: URLBlocklistComment,
+			}
+			session.AddToList(params)
+		}
+
+		// clean up resources
+		ips = nil
+		urls = nil
 	}
 }
 
@@ -210,127 +253,6 @@ func (s *Session) buildRequest(url, method string, headers map[string]string, da
 	}
 
 	return resp.StatusCode, resp, nil
-}
-
-func (s *Session) createList(name, comment string) error {
-MethodStart:
-	// Create list
-	createList := structs.List{
-		Name:    name,
-		Comment: comment,
-		IPList:  nil,
-	}
-
-	// Convert list creation object to json.
-	b := new(bytes.Buffer)
-	json.NewEncoder(b).Encode(createList)
-
-	url := fmt.Sprintf("%s:%s/%s/%s", s.Host, s.Port, s.Version, "elements/ip_list")
-	status, resp, err := s.buildRequest(url, http.MethodPost, map[string]string{"Content-Type": "application/json"}, b)
-
-	if err != nil {
-		return errors.Wrap(err, "There was an error creating the blocklist creation request")
-	}
-
-	if status == http.StatusUnauthorized {
-		s.Login()
-		goto MethodStart
-	}
-
-	// Handle response code.
-	if status != http.StatusCreated {
-		return errors.New(fmt.Sprintf("the list creation request was unsuccessful. Status Code: %d", status))
-	}
-
-	// Store list ID
-	header := resp.Header.Get("Location")
-	idIndex := strings.LastIndex(header, "/")
-	listId := header[idIndex+1:]
-
-	viper.Set(name, listId)
-	if err := viper.WriteConfig(); err != nil {
-		logrus.Error("error writing list ID to config", err)
-	}
-
-	fmt.Println("successfully created list with Status Code: ", resp.StatusCode)
-	return nil
-}
-
-func (s *Session) retrieveList(safe bool) (*http.Response, error) {
-MethodStart:
-
-	var id string
-	if safe {
-		id = viper.GetString("dim_safelist")
-	} else {
-		id = viper.GetString("dim_blocklist")
-	}
-
-	url := fmt.Sprintf("%s:%s/%s/%s", s.Host, s.Port, s.Version, fmt.Sprintf("elements/ip_list/%s/ip_address_list", id))
-	status, resp, err := s.buildRequest(
-		url,
-		http.MethodGet,
-		map[string]string{"Content-Type": "application/json", "Accept": "application/json"},
-		nil)
-
-	if err != nil {
-		return nil, errors.Wrap(err, "There was an error building the blocklist retrieval request.")
-	}
-
-	if status == http.StatusUnauthorized {
-		s.Login()
-		goto MethodStart
-	}
-
-	// Handle response code.
-	if status != http.StatusOK {
-		return nil, errors.New(fmt.Sprintf("The blocklist retrieval request was unsuccessful. Status Code: %d", status))
-	}
-
-	return resp, nil
-}
-
-func (s *Session) updateList(resp *http.Response, batch structs.Request) error {
-
-	var id string
-	if batch.SafeList {
-		id = viper.GetString("dim_safelist")
-	} else {
-		id = viper.GetString("dim_blocklist")
-	}
-
-	// Get elements and ETAG
-	etag := resp.Header.Get("ETag")
-	ipList := structs.List{}
-	json.NewDecoder(resp.Body).Decode(&ipList)
-
-	// Append to IP List
-	for _, element := range batch.Items {
-		ipList.IPList = append(ipList.IPList, element.Value)
-	}
-
-	// Convert blocklist update object to json.
-	b := new(bytes.Buffer)
-	json.NewEncoder(b).Encode(ipList)
-
-	url := fmt.Sprintf("%s:%s/%s/%s", s.Host, s.Port, s.Version, fmt.Sprintf("elements/ip_list/%s/ip_address_list", id))
-	_, resp, err := s.buildRequest(
-		url,
-		http.MethodPost,
-		map[string]string{"Content-Type": "application/json", "If-Match": etag},
-		b)
-
-	// Build blocklist update request.
-	if err != nil {
-		return errors.Wrap(err, "There was an error creating the blocklist update request")
-	}
-
-	// Handle response code.
-	if resp.StatusCode != http.StatusAccepted {
-		return errors.New(fmt.Sprintf("The blocklist update request was unsuccessful. Status Code: %d", resp.StatusCode))
-	}
-
-	return nil
 }
 
 func (s *Session) GetLatestApiVersion() (*ApiVersion, error) {
@@ -357,7 +279,7 @@ func (s *Session) GetLatestApiVersion() (*ApiVersion, error) {
 	return &apiVersions.Version[len(apiVersions.Version)-1], nil
 }
 
-// Representation of data returned from SMC API version check
+// ApiVersion Representation of data returned from SMC API version check
 //{
 //"href": "http://146.59.179.241:8082/6.9/api",
 //"rel": "6.9"

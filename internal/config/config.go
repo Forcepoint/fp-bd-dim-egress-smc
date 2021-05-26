@@ -53,7 +53,7 @@ func GetConfig() structs.ModuleConfig {
 			Label:            "Elements Exported",
 			Type:             7,
 			ExpectedJsonName: "",
-			Rationale:        "IP Addresses\nIP Ranges",
+			Rationale:        "IP Addresses\nIP Ranges\nDomains\nURLs",
 			Value:            "",
 			PossibleValues:   nil,
 			Required:         false,
@@ -140,6 +140,8 @@ func ValidateConfig(smcSession *smc.Session) (bool, string) {
 	if status != http.StatusOK {
 		return false, fmt.Sprintf("Connection to SMC could not be created. Please validate configuration and try again. STATUS: %s", http.StatusText(status))
 	}
+
+	fmt.Println("Configuration Validated.")
 
 	return true, ""
 }

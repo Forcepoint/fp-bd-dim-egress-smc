@@ -16,7 +16,7 @@ import (
 )
 
 func health(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
+	if r.Method == http.MethodGet {
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -25,21 +25,18 @@ func health(w http.ResponseWriter, r *http.Request) {
 
 func config(session *smc.Session) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-
+		switch r.Method {
+		case http.MethodGet:
 			// Set response headers
 			w.Header().Set("Content-Type", "application/json")
-
 			// Get config
 			data := conf.GetConfig()
-
 			// Return json response
 			if err := json.NewEncoder(w).Encode(data); err != nil {
 				logrus.Error("There was an error encoding the config for response: ", err)
 				return
 			}
-
-		} else if r.Method == "POST" {
+		case http.MethodPost:
 			// Get posted config data.
 			var config structs.PostedModuleConfig
 			err := json.NewDecoder(r.Body).Decode(&config)
@@ -48,7 +45,6 @@ func config(session *smc.Session) http.Handler {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-
 			// Store current configuration.
 			blocklistDuration := viper.GetString("blocklist_duration")
 			smcEndpoint := viper.GetString("smc_endpoint")
@@ -88,7 +84,7 @@ func config(session *smc.Session) http.Handler {
 }
 
 func run(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
+	if r.Method == http.MethodPost {
 		// Create struct for element sent.
 		var request structs.Request
 
@@ -113,12 +109,12 @@ func RunServer(smcSession *smc.Session) {
 	router := mux.NewRouter().StrictSlash(true)
 
 	// Create Routes
-	router.HandleFunc("/health", health).Methods("OPTIONS", "GET")
-	router.Handle("/config", config(smcSession)).Methods("OPTIONS", "GET", "POST")
-	router.HandleFunc("/run", run).Methods("OPTIONS", "POST")
+	router.HandleFunc("/health", health).Methods(http.MethodOptions, http.MethodGet)
+	router.Handle("/config", config(smcSession)).Methods(http.MethodOptions, http.MethodGet, http.MethodPost)
+	router.HandleFunc("/run", run).Methods(http.MethodOptions, http.MethodPost)
 
 	fmt.Println("Starting Server")
 
 	// Start Server
-	log.Fatal(http.ListenAndServe("0.0.0.0:8080", router))
+	log.Fatal(http.ListenAndServe(":8080", router))
 }

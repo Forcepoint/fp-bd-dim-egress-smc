@@ -1,18 +1,9 @@
 package structs
 
-type IntelligenceElementType string
-
-const (
-	IP     IntelligenceElementType = "IP"
-	DOMAIN IntelligenceElementType = "DOMAIN"
-	URL    IntelligenceElementType = "URL"
-	RANGE  IntelligenceElementType = "RANGE"
-)
-
 type Module struct {
 	ServiceName          string             `json:"module_service_name"`
 	DisplayName          string             `json:"module_display_name"`
-	IconURL 			 string 			`json:"icon_url"`
+	IconURL              string             `json:"icon_url"`
 	Type                 string             `json:"module_type"`
 	Description          string             `json:"module_description"`
 	InboundRoute         string             `json:"inbound_route"`
@@ -25,7 +16,7 @@ type Module struct {
 }
 
 type ModuleElementTypes struct {
-	ElementTypes []IntelligenceElementType `json:"element_types"`
+	ElementTypes []ListElementType `json:"element_types"`
 }
 
 type InternalEndpoint struct {

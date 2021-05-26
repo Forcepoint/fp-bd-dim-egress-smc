@@ -91,7 +91,7 @@ func GetModuleDetails(loggedIn bool) structs.Module {
 			configEndpoint,
 		},
 		AcceptedElementTypes: structs.ModuleElementTypes{
-			ElementTypes: []structs.IntelligenceElementType{structs.IP, structs.RANGE},
+			ElementTypes: []structs.ListElementType{structs.IP, structs.RANGE, structs.DOMAIN, structs.URL},
 		},
 	}
 

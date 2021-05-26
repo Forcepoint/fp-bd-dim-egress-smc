@@ -12,11 +12,11 @@ type Request struct {
 }
 
 type RequestElement struct {
-	Source      string `json:"source"`
-	ServiceName string `json:"service_name"`
-	Type        string `json:"type"`
-	Value       string `json:"value"`
-	BatchNumber int    `json:"batch_number"`
+	Source      string          `json:"source"`
+	ServiceName string          `json:"service_name"`
+	Type        ListElementType `json:"type"`
+	Value       string          `json:"value"`
+	BatchNumber int             `json:"batch_number"`
 }
 
 func (r *RequestElement) IsValid() bool {
