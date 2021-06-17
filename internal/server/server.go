@@ -76,7 +76,7 @@ func config(session *smc.Session) http.Handler {
 				w.WriteHeader(http.StatusBadRequest)
 				w.Write([]byte(errStr))
 			} else {
-				conf.RegisterModule(session.LoggedIn)
+				conf.RegisterModule(valid)
 				w.WriteHeader(http.StatusAccepted)
 			}
 		}

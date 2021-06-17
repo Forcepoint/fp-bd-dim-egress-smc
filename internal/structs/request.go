@@ -5,10 +5,19 @@ import (
 	"strings"
 )
 
+type UpdateType string
+
+const (
+	ADD    UpdateType = "add"
+	DELETE UpdateType = "remove"
+)
+
 type Request struct {
-	SafeList bool             `json:"safe_list"`
-	Items    []RequestElement `json:"items"`
-	BatchID  int              `json:"batch_id"`
+	UpdateType UpdateType       `json:"update_type"`
+	SafeList   bool             `json:"safe_list"`
+	Items      []RequestElement `json:"items"`
+	Item       RequestElement   `json:"item"`
+	BatchID    int              `json:"batch_id"`
 }
 
 type RequestElement struct {

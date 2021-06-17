@@ -7,3 +7,9 @@ type SMCList struct {
 	IPList   []string `json:"ip,omitempty"`
 	Key      int      `json:"key,omitempty"`
 }
+
+type SMCPatch struct {
+	Op    UpdateType `json:"op"`
+	Path  string     `json:"path"`
+	Value string     `json:"value,omitempty"`
+}

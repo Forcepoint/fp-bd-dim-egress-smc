@@ -18,7 +18,9 @@ import (
 )
 
 type ListParams struct {
+	UpdateType       structs.UpdateType
 	items            []string
+	item             string
 	safe             bool
 	batchID          int
 	listType         ListType
@@ -96,38 +98,40 @@ func (s *Session) Login() int {
 	return status
 }
 
-func (s *Session) AddToList(params ListParams) {
-	created, err := s.createList(params)
-	if err != nil {
-		logrus.Error(err)
-		go s.updateBatchStatus(params.batchID, structs.Failed)
-		return
-	}
+func (s *Session) UpdateLists(params ListParams) {
+	switch params.UpdateType {
+	case structs.ADD:
+		created, err := s.createList(params)
+		if err != nil {
+			logrus.Error(err)
+			go s.updateBatchStatus(params.batchID, structs.Failed)
+			return
+		}
 
-	// URL Lists require values to be passed for list creation, so in that case we can just return here
-	// as the next steps are unnecessary, but they will be run on subsequent updates.
-	if created && params.listType == URLListType {
+		// URL Lists require values to be passed for list creation, so in that case we can just return here
+		// as the next steps are unnecessary, but they will be run on subsequent updates.
+		if created && params.listType == URLListType {
+			go s.updateBatchStatus(params.batchID, structs.Success)
+			return
+		}
+
+		err = s.updateList(params)
+		if err != nil {
+			logrus.Error(err)
+			go s.updateBatchStatus(params.batchID, structs.Failed)
+			return
+		}
+	case structs.DELETE:
+		err := s.updateList(params)
+		if err != nil {
+			logrus.Error(err)
+			go s.updateBatchStatus(params.batchID, structs.Failed)
+			return
+		}
+	default:
+		// Build update to send to controller
 		go s.updateBatchStatus(params.batchID, structs.Success)
-		return
 	}
-
-	resp, err := s.retrieveList(params)
-
-	if err != nil {
-		logrus.Error(err)
-		go s.updateBatchStatus(params.batchID, structs.Failed)
-		return
-	}
-
-	err = s.updateList(resp, params)
-	if err != nil {
-		logrus.Error(err)
-		go s.updateBatchStatus(params.batchID, structs.Failed)
-		return
-	}
-
-	// Build update to send to controller
-	go s.updateBatchStatus(params.batchID, structs.Success)
 }
 
 func (s Session) Logout() {
@@ -188,50 +192,72 @@ func HandleRequests(session *Session) {
 		// Retrieve requests.
 		request := <-channel.Requests
 
-		var ips []string
-		var urls []string
+		switch request.UpdateType {
+		case structs.ADD:
+			var ips []string
+			var urls []string
 
-		for _, item := range request.Items {
-			switch item.Type {
-			case structs.IP, structs.RANGE:
-				ips = append(ips, item.Value)
+			for _, item := range request.Items {
+				switch item.Type {
+				case structs.IP, structs.RANGE:
+					ips = append(ips, item.Value)
+				case structs.URL, structs.DOMAIN:
+					urls = append(urls, item.Value)
+				}
+			}
+
+			// Send request to add to smc ip lists.
+			if len(ips) > 0 {
+				params := ListParams{
+					UpdateType:       request.UpdateType,
+					items:            ips,
+					safe:             request.SafeList,
+					batchID:          request.BatchID,
+					listType:         IPListType,
+					safelistName:     IPSafelist,
+					blocklistName:    IPBlocklist,
+					safelistComment:  IPSafelistComment,
+					blocklistComment: IPBlocklistComment,
+				}
+				session.UpdateLists(params)
+			}
+
+			if len(urls) > 0 {
+				params := ListParams{
+					UpdateType:       request.UpdateType,
+					items:            urls,
+					safe:             request.SafeList,
+					batchID:          request.BatchID,
+					listType:         URLListType,
+					safelistName:     URLSafelist,
+					blocklistName:    URLBlocklist,
+					safelistComment:  URLSafelistComment,
+					blocklistComment: URLBlocklistComment,
+				}
+				session.UpdateLists(params)
+			}
+
+			// clean up resources
+			ips = nil
+			urls = nil
+		case structs.DELETE:
+			switch request.Item.Type {
 			case structs.URL, structs.DOMAIN:
-				urls = append(urls, item.Value)
+				params := ListParams{
+					UpdateType:       request.UpdateType,
+					item:             request.Item.Value,
+					safe:             request.SafeList,
+					batchID:          request.BatchID,
+					listType:         URLListType,
+					safelistName:     URLSafelist,
+					blocklistName:    URLBlocklist,
+					safelistComment:  URLSafelistComment,
+					blocklistComment: URLBlocklistComment,
+				}
+				session.UpdateLists(params)
 			}
 		}
 
-		// Send request to add to smc ip lists.
-		if len(ips) > 0 {
-			params := ListParams{
-				items:            ips,
-				safe:             request.SafeList,
-				batchID:          request.BatchID,
-				listType:         IPListType,
-				safelistName:     IPSafelist,
-				blocklistName:    IPBlocklist,
-				safelistComment:  IPSafelistComment,
-				blocklistComment: IPBlocklistComment,
-			}
-			session.AddToList(params)
-		}
-
-		if len(urls) > 0 {
-			params := ListParams{
-				items:            urls,
-				safe:             request.SafeList,
-				batchID:          request.BatchID,
-				listType:         URLListType,
-				safelistName:     URLSafelist,
-				blocklistName:    URLBlocklist,
-				safelistComment:  URLSafelistComment,
-				blocklistComment: URLBlocklistComment,
-			}
-			session.AddToList(params)
-		}
-
-		// clean up resources
-		ips = nil
-		urls = nil
 	}
 }
 
