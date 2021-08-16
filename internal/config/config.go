@@ -2,14 +2,15 @@ package config
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"main/internal/smc"
 	"main/internal/structs"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 func InitConfig() {
@@ -53,7 +54,7 @@ func GetConfig() structs.ModuleConfig {
 			Label:            "Elements Exported",
 			Type:             7,
 			ExpectedJsonName: "",
-			Rationale:        "IP Addresses\nIP Ranges\nDomains\nURLs",
+			Rationale:        "IP Addresses\nIP Ranges\nDomains\nURLs\nSnort Rules",
 			Value:            "",
 			PossibleValues:   nil,
 			Required:         false,

@@ -4,17 +4,20 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"main/internal/channel"
+	"main/internal/structs"
+	"main/internal/util"
+	"net/http"
+	"net/http/cookiejar"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"io"
-	"main/internal/channel"
-	"main/internal/structs"
-	"net/http"
-	"net/http/cookiejar"
-	"os"
-	"time"
 )
 
 type ListParams struct {
@@ -196,6 +199,7 @@ func HandleRequests(session *Session) {
 		case structs.ADD:
 			var ips []string
 			var urls []string
+			var snorts []string
 
 			for _, item := range request.Items {
 				switch item.Type {
@@ -203,6 +207,8 @@ func HandleRequests(session *Session) {
 					ips = append(ips, item.Value)
 				case structs.URL, structs.DOMAIN:
 					urls = append(urls, item.Value)
+				case structs.SNORT:
+					snorts = append(snorts, item.Value)
 				}
 			}
 
@@ -237,9 +243,39 @@ func HandleRequests(session *Session) {
 				session.UpdateLists(params)
 			}
 
+			if len(snorts) > 0 {
+				exportDirPath, err := session.RetrieveGlobalSnortConfig()
+
+				if err != nil {
+					logrus.Error("Error in retrieving global snort config: ", err)
+				}
+
+				snortFileName := fmt.Sprintf("%s%s%s", "dim_snorts_", strconv.FormatInt(time.Now().Unix(), 10), ".config")
+
+				err = util.SaveListToAfile(exportDirPath, snortFileName, snorts)
+
+				if err != nil {
+					logrus.Error("Error in saving new snorts: ", err)
+				}
+
+				err = util.SmcRulesInclude(exportDirPath, snortFileName)
+
+				if err != nil {
+					logrus.Error("Error in adding the snort file to the rule include file", err)
+				}
+
+				err = session.ImportGlobalSnortConfig(exportDirPath)
+
+				if err != nil {
+					logrus.Error("Error in importing global snort config: ", err)
+				}
+			}
+
 			// clean up resources
 			ips = nil
 			urls = nil
+			snorts = nil
+
 		case structs.DELETE:
 			switch request.Item.Type {
 			case structs.URL, structs.DOMAIN:

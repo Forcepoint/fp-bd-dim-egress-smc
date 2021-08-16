@@ -9,6 +9,7 @@ const (
 	DOMAIN ListElementType = "DOMAIN"
 	URL    ListElementType = "URL"
 	RANGE  ListElementType = "RANGE"
+	SNORT  ListElementType = "SNORT"
 
 	Success BatchStatus = "success"
 	Failed  BatchStatus = "failed"

@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"main/internal/structs"
 	"net"
 	"net/http"
 	"os"
+
+	"github.com/sirupsen/logrus"
 )
 
 func RegisterModule(loggedIn bool) {
@@ -91,7 +92,7 @@ func GetModuleDetails(loggedIn bool) structs.Module {
 			configEndpoint,
 		},
 		AcceptedElementTypes: structs.ModuleElementTypes{
-			ElementTypes: []structs.ListElementType{structs.IP, structs.RANGE, structs.DOMAIN, structs.URL},
+			ElementTypes: []structs.ListElementType{structs.IP, structs.RANGE, structs.DOMAIN, structs.URL, structs.SNORT},
 		},
 	}
 

@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"main/internal/structs"
+	"main/internal/util"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"main/internal/structs"
-	"net/http"
-	"strings"
 )
 
 var ErrPatchNotSupported = errors.New("patch not supported for this type")
@@ -226,6 +232,160 @@ func (s *Session) updateList(params ListParams) error {
 	// Handle response code.
 	if resp.StatusCode != successfulUpdateStatusCode {
 		return errors.New(fmt.Sprintf("The list update request was unsuccessful. Status Code: %d", resp.StatusCode))
+	}
+
+	return nil
+}
+
+func (s *Session) RetrieveGlobalSnortConfig() (string, error) {
+
+	snortTempDirPath := filepath.Join("/temp", "snort")
+
+	// exists
+	if _, err := os.Stat(snortTempDirPath); !os.IsNotExist(err) {
+		// clear it
+		err := os.RemoveAll(snortTempDirPath)
+		if err != nil {
+			return "", errors.Wrap(err, "error removing temp snort export dir content")
+		}
+	}
+
+	// create export dir
+	snortExportTempDirPath := filepath.Join(snortTempDirPath, "export")
+	err := os.MkdirAll(snortExportTempDirPath, os.ModePerm)
+	if err != nil {
+		return "", errors.Wrap(err, "error creating a temp dir for the snorts export")
+	}
+
+	snortUrl, err := s.getSnortUrl()
+
+	if err != nil {
+		return "", err
+	}
+
+	if snortUrl == "" {
+		return "", errors.New("error snortUrl is empty")
+	}
+
+	snortExportUrl := fmt.Sprintf("%s/snort_configuration_file/export", snortUrl)
+	_, resp, err := s.buildRequest(snortExportUrl, http.MethodGet, map[string]string{"Content-Type": "application/json", "Accept": "application/json"}, nil)
+
+	if err != nil {
+		return "", errors.Wrap(err, "error exporting snort configuration file")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+
+		// Create the file
+		globalSnortsZipPath := filepath.Join(snortTempDirPath, "global-smc-snorts.zip")
+		out, err := os.Create(globalSnortsZipPath)
+		if err != nil {
+			return "", errors.Wrap(err, "creating global-smc-snorts.zip")
+		}
+		defer out.Close()
+
+		// Write the body to file
+		_, err = io.Copy(out, resp.Body)
+		if err != nil {
+			return "", errors.Wrap(err, "writing resp.Body into global-snorts.zip")
+		}
+
+		_, err = util.Unzip(globalSnortsZipPath, snortExportTempDirPath)
+		if err != nil {
+			return "", errors.Wrap(err, "unzipping global-smc-snorts.zip")
+		}
+
+	} else if resp.StatusCode != http.StatusNotFound {
+		return "", errors.New(fmt.Sprintf("error exporting global snort configurations, status code is: %s", resp.StatusCode))
+	}
+
+	err = util.CreateFileIfNotExist(filepath.Join(snortExportTempDirPath, "rules_include.config"))
+
+	if err != nil {
+		return "", errors.Wrap(err, "creating rules_include.config")
+	}
+
+	return snortExportTempDirPath, nil
+}
+
+func (s *Session) getSystemProperties() (structs.SMCSystemProperties, error) {
+	url := fmt.Sprintf("%s:%s/%s/system/system_properties", s.Host, s.Port, s.Version)
+	_, resp, err := s.buildRequest(url, http.MethodGet, map[string]string{"Content-Type": "application/json"}, nil)
+
+	if err != nil {
+		return structs.SMCSystemProperties{}, errors.Wrap(err, "There was an error in system_properties request")
+	}
+
+	result := structs.SMCSystemProperties{}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+
+	if err != nil {
+		return structs.SMCSystemProperties{}, errors.Wrap(err, "There was an error in decoding system_properties request")
+	}
+
+	return result, nil
+}
+
+func (s *Session) getSnortUrl() (string, error) {
+
+	result, err := s.getSystemProperties()
+
+	if err != nil {
+		return "", err
+	}
+
+	snortUrl := ""
+
+	for _, property := range result.Results {
+		switch property.Name {
+		case "snort_global_config":
+			snortUrl = property.Href
+			break
+		}
+	}
+
+	return snortUrl, nil
+}
+
+func (s *Session) ImportGlobalSnortConfig(exportDirPath string) error {
+
+	zipDestPath := filepath.Join("/temp", "snort")
+	zipDirPath, err := util.Zip(exportDirPath, zipDestPath, "global-snorts")
+	if err != nil {
+		return errors.Wrap(err, "zipping global-snorts.zip")
+	}
+
+	file, err := os.Open(zipDirPath)
+	if err != nil {
+		return errors.Wrap(err, "error in oppening global-snorts.zip for upload")
+	}
+	defer file.Close()
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", filepath.Base(file.Name()))
+	if err != nil {
+		return errors.Wrap(err, "error in preparing global-snorts.zip for upload")
+	}
+	io.Copy(part, file)
+	writer.Close()
+
+	snortUrl, err := s.getSnortUrl()
+	if err != nil {
+		return err
+	}
+	if snortUrl == "" {
+		return errors.New("error snortUrl is empty")
+	}
+
+	snortImportUrl := fmt.Sprintf("%s/snort_configuration_file/import", snortUrl)
+	_, resp, err := s.buildRequest(snortImportUrl, http.MethodPost, map[string]string{"Content-Type": writer.FormDataContentType()}, body)
+	if err != nil {
+		return errors.Wrap(err, "error importing snort configuration file")
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return errors.New(fmt.Sprintf("error importing snort global configurations, status code is: %s", resp.StatusCode))
 	}
 
 	return nil
